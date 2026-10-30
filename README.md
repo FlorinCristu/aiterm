@@ -32,6 +32,8 @@ powershell -ExecutionPolicy Bypass -File packaging\build.ps1
 
 This builds `dist\aiterm-setup\` and `dist\aiterm-setup.zip`. To install, run `install.cmd` from there. aiterm then appears in Windows search and in Settings → Apps, and you can uninstall it from there.
 
+The Start Menu shortcut opens aiterm in its own console window, so the taskbar shows the aiterm icon. To open it in Windows Terminal instead, install with `install.ps1 -UseWindowsTerminal`. Windows Terminal renders text more nicely, but the taskbar then shows the Terminal icon.
+
 `dev/test-server.js` is a tiny HTTP server on port 3300. It's handy for testing requests like "kill whatever is on port 3300".
 
 ## Keys

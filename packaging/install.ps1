@@ -1,6 +1,8 @@
 # Per-user install of aiterm (no admin needed).
 # Adds: Start Menu entry (Windows search), PATH entry, and an "Installed apps" uninstall entry.
-param([switch]$Quiet)
+# -UseWindowsTerminal: open in Windows Terminal instead (nicer rendering, but the taskbar then
+# shows Terminal's icon instead of aiterm's).
+param([switch]$Quiet, [switch]$UseWindowsTerminal)
 $ErrorActionPreference = 'Stop'
 
 $src     = $PSScriptRoot
@@ -19,7 +21,13 @@ $ico = Join-Path $dest 'aiterm.ico'
 $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'aiterm.lnk'
 $sh = New-Object -ComObject WScript.Shell
 $s = $sh.CreateShortcut($lnk)
-$s.TargetPath       = $exe
+if ($UseWindowsTerminal) {
+    $s.TargetPath = $exe
+} else {
+    # Launching through conhost gives aiterm its own window, so the taskbar shows aiterm's icon.
+    $s.TargetPath = Join-Path $env:SystemRoot 'System32\conhost.exe'
+    $s.Arguments  = "`"$exe`""
+}
 $s.WorkingDirectory = $env:USERPROFILE
 $s.IconLocation     = "$ico,0"
 $s.Description      = 'AI terminal: bash + natural language commands (DeepSeek)'

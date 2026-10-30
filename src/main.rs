@@ -1,6 +1,7 @@
 mod ai;
 mod detect;
 mod shell;
+mod ui;
 
 use detect::{Detector, Kind};
 use rustyline::completion::{Completer, FilenameCompleter, Pair};
@@ -11,17 +12,14 @@ use rustyline::validate::Validator;
 use rustyline::{Editor, Helper};
 use shell::{Outcome, Shell};
 use std::borrow::Cow;
+use std::cell::RefCell;
 use std::io::Write;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Instant;
+use ui::{AMBER, ARROW, BOLD, CORAL, GRAY, RESET, SPARK};
 
-const DIM: &str = "\x1b[2m";
-const CYAN: &str = "\x1b[36m";
-const MAGENTA: &str = "\x1b[35m";
-const RED: &str = "\x1b[31m";
-const RESET: &str = "\x1b[0m";
-const AI_PROMPT: &str = "✦ run ❯ ";
+const AI_PROMPT: &str = "♦ run › ";
 
 static CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -38,6 +36,8 @@ impl Hint for AiHint {
 struct Input {
     detector: Arc<Detector>,
     files: FilenameCompleter,
+    /// (plain, coloured) form of the current prompt.
+    prompt: RefCell<(String, String)>,
 }
 
 impl Helper for Input {}
@@ -57,22 +57,46 @@ impl Hinter for Input {
         if pos < line.len() || line.trim().is_empty() {
             return None;
         }
-        (self.detector.classify(line) == Kind::Natural).then_some(AiHint("   ✦ AI"))
+        (self.detector.classify(line) == Kind::Natural).then_some(AiHint("   ♦ ask AI"))
     }
 }
 
 impl Highlighter for Input {
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(&'s self, prompt: &'p str, _default: bool) -> Cow<'b, str> {
-        if prompt.starts_with('✦') {
-            return Cow::Owned(format!("{MAGENTA}{prompt}{RESET}"));
+        if prompt == AI_PROMPT {
+            return Cow::Owned(format!("{AMBER}{BOLD}{SPARK} run {ARROW}{RESET} "));
         }
-        match prompt.rsplit_once(' ').and_then(|(p, _)| p.rsplit_once(' ')) {
-            Some((dir, arrow)) => Cow::Owned(format!("{CYAN}{dir}{RESET} {MAGENTA}{arrow}{RESET} ")),
-            None => Cow::Borrowed(prompt),
+        let p = self.prompt.borrow();
+        if prompt == p.0 {
+            Cow::Owned(p.1.clone())
+        } else {
+            Cow::Borrowed(prompt)
         }
     }
+
+    /// Text turns amber the moment it reads as English; a known command name is set in bold.
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+        if line.trim().is_empty() {
+            return Cow::Borrowed(line);
+        }
+        if self.detector.classify(line) == Kind::Natural {
+            return Cow::Owned(format!("{AMBER}{line}{RESET}"));
+        }
+        let start = line.len() - line.trim_start().len();
+        let end = line[start..].find(char::is_whitespace).map_or(line.len(), |i| start + i);
+        if self.detector.is_command(line[start..end].trim_start_matches('!')) {
+            Cow::Owned(format!("{}{BOLD}{}{RESET}{}", &line[..start], &line[start..end], &line[end..]))
+        } else {
+            Cow::Borrowed(line)
+        }
+    }
+
+    fn highlight_char(&self, _line: &str, _pos: usize, _forced: bool) -> bool {
+        true
+    }
+
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
-        Cow::Owned(format!("{MAGENTA}{DIM}{hint}{RESET}"))
+        Cow::Owned(format!("{AMBER}{hint}{RESET}"))
     }
 }
 
@@ -90,22 +114,29 @@ fn main() {
     }
 
     let mut rl: Editor<Input, rustyline::history::DefaultHistory> = Editor::new().expect("terminal");
-    rl.set_helper(Some(Input { detector: detector.clone(), files: FilenameCompleter::new() }));
+    rl.set_helper(Some(Input {
+        detector: detector.clone(),
+        files: FilenameCompleter::new(),
+        prompt: RefCell::new((String::new(), String::new())),
+    }));
     let history = ai::home_dir().map(|h| h.join(".aiterm_history"));
     if let Some(h) = &history {
         let _ = rl.load_history(h);
     }
 
-    println!(
-        "{DIM}aiterm · bash: {} · ai: {} · type plain English to get a command (#force AI, !force shell){RESET}",
-        sh.bash.display(),
-        client.as_ref().map(|c| c.model().to_string()).unwrap_or_else(|| "off (set DEEPSEEK_API_KEY)".into())
-    );
+    ui::banner(&sh.bash, client.as_ref().map(|c| c.model()));
 
     let mut last: Option<(String, i32)> = None;
     loop {
         CANCEL.store(false, Ordering::Relaxed);
-        let prompt = format!("{} ❯ ", shell::pretty_cwd(&sh.cwd));
+        let cwd = shell::pretty_cwd(&sh.cwd);
+        ui::set_title(&cwd);
+        let branch = ui::git_branch(&sh.cwd);
+        let failed = matches!(&last, Some((_, c)) if *c != 0 && *c != 130);
+        let (prompt, coloured) = ui::prompt(&cwd, branch.as_deref(), failed);
+        if let Some(h) = rl.helper() {
+            *h.prompt.borrow_mut() = (prompt.clone(), coloured);
+        }
         let line = match rl.readline(&prompt) {
             Ok(l) => l,
             Err(ReadlineError::Interrupted) => continue,
@@ -115,6 +146,10 @@ fn main() {
         if input.is_empty() {
             continue;
         }
+        if input == "?" {
+            ui::help();
+            continue;
+        }
         let _ = rl.add_history_entry(input);
 
         let command = match detector.classify(input) {
@@ -122,7 +157,7 @@ fn main() {
             Kind::Natural => {
                 let request = input.trim_start_matches('#').trim();
                 let Some(client) = &client else {
-                    eprintln!("{RED}✦ AI is off.{RESET} Set DEEPSEEK_API_KEY (or put the key in ~/.aiterm_key), or prefix with ! to run as-is.");
+                    eprintln!("{CORAL}{SPARK} AI is off.{RESET} Set DEEPSEEK_API_KEY (or put the key in ~/.aiterm_key), or prefix with ! to run as-is.");
                     continue;
                 };
                 match ask(client, request, &sh, &last) {
@@ -142,12 +177,11 @@ fn main() {
         }
 
         CANCEL.store(false, Ordering::Relaxed);
+        let started = Instant::now();
         match sh.run(&command) {
             Outcome::Exit => break,
             Outcome::Code(code) => {
-                if code != 0 {
-                    println!("{DIM}[exit {code}]{RESET}");
-                }
+                ui::report(code, started.elapsed());
                 last = Some((command, code));
             }
         }
@@ -155,6 +189,7 @@ fn main() {
     if let Some(h) = &history {
         let _ = rl.save_history(h);
     }
+    println!("{GRAY}bye {AMBER}{SPARK}{RESET}");
 }
 
 /// Stream the suggestion on a dim line, then erase it so the editable command replaces it.
@@ -169,25 +204,27 @@ fn ask(client: &ai::Client, request: &str, sh: &Shell, last: &Option<(String, i3
     };
     let started = Instant::now();
     let mut out = std::io::stdout();
-    let _ = write!(out, "{MAGENTA}{DIM}✦ thinking…{RESET}");
-    let _ = out.flush();
-    let mut first = true;
+    let mut spinner = Some(ui::Spinner::start("thinking"));
     let result = client.suggest(request, &ctx, &CANCEL, |tok| {
-        if first {
-            let _ = write!(out, "\r\x1b[2K{MAGENTA}{DIM}✦ ");
-            first = false;
+        if let Some(mut s) = spinner.take() {
+            s.stop();
+            let _ = write!(out, "{AMBER}{SPARK} {GRAY}");
         }
         let _ = write!(out, "{}", tok.replace('\n', " "));
         let _ = out.flush();
     });
+    drop(spinner);
     let _ = write!(out, "{RESET}\r\x1b[2K");
     match result {
         Ok(cmd) => {
-            println!("{DIM}✦ {:.2}s · Enter to run, edit first if you like, Ctrl-C to cancel{RESET}", started.elapsed().as_secs_f32());
+            println!(
+                "{AMBER}{SPARK}{RESET} {GRAY}{}  ·  Enter runs it  ·  edit first if you like  ·  Ctrl-C cancels{RESET}",
+                ui::fmt_duration(started.elapsed())
+            );
             Some(cmd)
         }
         Err(e) => {
-            eprintln!("{RED}✦ {e}{RESET}");
+            eprintln!("{CORAL}{SPARK} {e}{RESET}");
             None
         }
     }
