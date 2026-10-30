@@ -1,5 +1,6 @@
 mod ai;
 mod detect;
+mod settings;
 mod shell;
 mod ui;
 
@@ -108,7 +109,7 @@ fn main() {
 
     let mut sh = Shell::new();
     let detector = Arc::new(Detector::new(&sh.tool_dirs()));
-    let client = ai::Client::from_env();
+    let mut client = ai::Client::from_env();
     if let Some(c) = &client {
         c.warm_up();
     }
@@ -146,6 +147,10 @@ fn main() {
         if input.is_empty() {
             continue;
         }
+        if matches!(input, "/" | "/settings" | "/key") {
+            settings::menu(&mut client);
+            continue;
+        }
         if input == "?" {
             ui::help();
             continue;
@@ -156,10 +161,13 @@ fn main() {
             Kind::Shell => input.trim_start_matches('!').trim().to_string(),
             Kind::Natural => {
                 let request = input.trim_start_matches('#').trim();
-                let Some(client) = &client else {
-                    eprintln!("{CORAL}{SPARK} AI is off.{RESET} Set DEEPSEEK_API_KEY (or put the key in ~/.aiterm_key), or prefix with ! to run as-is.");
-                    continue;
-                };
+                if client.is_none() {
+                    println!("{CORAL}{SPARK} AI is off.{RESET} {GRAY}Add a DeepSeek key to ask this, or prefix with ! to run it as-is.{RESET}");
+                    if !settings::set_key(&mut client) {
+                        continue;
+                    }
+                }
+                let Some(client) = &client else { continue };
                 match ask(client, request, &sh, &last) {
                     Some(cmd) => match rl.readline_with_initial(AI_PROMPT, (&cmd, "")) {
                         Ok(edited) if !edited.trim().is_empty() => {

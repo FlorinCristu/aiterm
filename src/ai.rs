@@ -23,16 +23,17 @@ pub struct Context<'a> {
 impl Client {
     /// Reads DEEPSEEK_API_KEY (or ~/.aiterm_key), DEEPSEEK_MODEL, DEEPSEEK_BASE_URL, DEEPSEEK_THINKING.
     pub fn from_env() -> Option<Self> {
-        let key = std::env::var("DEEPSEEK_API_KEY").ok().filter(|k| !k.trim().is_empty()).or_else(|| {
-            let p = home_dir()?.join(".aiterm_key");
-            std::fs::read_to_string(p).ok().map(|s| s.trim().to_string()).filter(|k| !k.is_empty())
-        })?;
+        env_key().or_else(file_key).map(Client::with_key)
+    }
+
+    /// A client for `key`; model, base URL and thinking still come from the environment.
+    pub fn with_key(key: String) -> Self {
         let agent = ureq::AgentBuilder::new()
             .timeout_connect(Duration::from_secs(5))
             .timeout_read(Duration::from_secs(60))
             .max_idle_connections_per_host(2)
             .build();
-        Some(Client {
+        Client {
             agent,
             key,
             model: std::env::var("DEEPSEEK_MODEL").unwrap_or_else(|_| "deepseek-v4-flash".into()),
@@ -41,11 +42,29 @@ impl Client {
                 .trim_end_matches('/')
                 .to_string(),
             disable_thinking: std::env::var("DEEPSEEK_THINKING").map(|v| v != "1").unwrap_or(true),
-        })
+        }
     }
 
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    /// The key with all but its ends hidden: `sk-…a1b2`.
+    pub fn masked_key(&self) -> String {
+        mask(&self.key)
+    }
+
+    /// One cheap authenticated request, to tell a bad key from a good one before saving it.
+    pub fn check(&self) -> Result<(), String> {
+        match self.agent.get(&format!("{}/models", self.base)).set("Authorization", &format!("Bearer {}", self.key)).call() {
+            Ok(r) => {
+                let _ = r.into_string();
+                Ok(())
+            }
+            Err(ureq::Error::Status(401 | 403, _)) => Err("DeepSeek rejected that key".into()),
+            Err(ureq::Error::Status(code, _)) => Err(format!("DeepSeek answered HTTP {code}")),
+            Err(e) => Err(format!("could not reach DeepSeek ({e})")),
+        }
     }
 
     /// Open the TLS connection in the background so the first real request skips the handshake.
@@ -169,6 +188,47 @@ fn clean(raw: &str) -> String {
 
 pub fn home_dir() -> Option<std::path::PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(Into::into)
+}
+
+pub fn key_path() -> Option<std::path::PathBuf> {
+    home_dir().map(|h| h.join(".aiterm_key"))
+}
+
+/// Key from DEEPSEEK_API_KEY; it wins over the saved file.
+pub fn env_key() -> Option<String> {
+    std::env::var("DEEPSEEK_API_KEY").ok().map(|k| k.trim().to_string()).filter(|k| !k.is_empty())
+}
+
+fn file_key() -> Option<String> {
+    std::fs::read_to_string(key_path()?).ok().map(|s| s.trim().to_string()).filter(|k| !k.is_empty())
+}
+
+pub fn save_key(key: &str) -> std::io::Result<()> {
+    let path = key_path().ok_or_else(|| std::io::Error::other("no home directory"))?;
+    std::fs::write(&path, key)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
+pub fn remove_key() -> std::io::Result<()> {
+    match key_path() {
+        Some(p) if p.exists() => std::fs::remove_file(p),
+        _ => Ok(()),
+    }
+}
+
+fn mask(key: &str) -> String {
+    let chars: Vec<char> = key.chars().collect();
+    if chars.len() <= 8 {
+        return "•".repeat(chars.len());
+    }
+    let head: String = chars[..3].iter().collect();
+    let tail: String = chars[chars.len() - 4..].iter().collect();
+    format!("{head}…{tail}")
 }
 
 #[cfg(test)]

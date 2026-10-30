@@ -46,7 +46,7 @@ pub fn banner(bash: &Path, model: Option<&str>) {
     match model {
         Some(m) => println!("  {GRAY}{SPARK} {m}  ·  bash {}  ·  ? for help{RESET}", bash.display()),
         None => println!(
-            "  {CORAL}{SPARK} AI is off{RESET}{GRAY}  ·  set DEEPSEEK_API_KEY or put it in ~/.aiterm_key  ·  ? for help{RESET}"
+            "  {CORAL}{SPARK} AI is off{RESET}{GRAY}  ·  type / to add your DeepSeek key  ·  ? for help{RESET}"
         ),
     }
     println!();
@@ -60,6 +60,7 @@ pub fn help() {
     row("#anything", "always ask the AI");
     row("!anything", "always run it in bash");
     row("cd -", "back to the previous folder");
+    row("/", "settings: add, replace or remove your DeepSeek key");
     println!();
     println!("  {GRAY}While you type, text turns {AMBER}amber{GRAY} when it will go to the AI.{RESET}");
     println!("  {GRAY}↑ ↓ history  ·  Tab completes paths  ·  Ctrl-C cancels  ·  exit quits{RESET}");
