@@ -1,0 +1,83 @@
+# Builds aiterm on every push to main and publishes the result as the rolling "latest" release.
+name: Build and publish latest
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: release-latest
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            asset: aiterm-setup-windows-x64.zip
+          - os: ubuntu-latest
+            asset: aiterm-linux-x64.tar.gz
+          - os: macos-latest
+            asset: aiterm-macos-arm64.tar.gz
+    runs-on: ${{ matrix.os }}
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+
+      - run: cargo test --release
+
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./packaging/build.ps1
+          Move-Item dist/aiterm-setup.zip ${{ matrix.asset }}
+
+      - name: Package (Linux/macOS)
+        if: runner.os != 'Windows'
+        run: |
+          cargo build --release
+          tar -czf ${{ matrix.asset }} -C target/release aiterm -C "$GITHUB_WORKSPACE" LICENSE README.md
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: ${{ matrix.asset }}
+
+  publish:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: assets
+          merge-multiple: true
+
+      - name: Publish the "latest" release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          notes="Built from ${GITHUB_SHA::7} on $(date -u +'%Y-%m-%d %H:%M UTC').
+
+          Windows: unzip aiterm-setup-windows-x64.zip and double-click install.cmd.
+          Linux/macOS: extract the tarball and put aiterm on your PATH."
+
+          git tag -f latest "$GITHUB_SHA"
+          git push -f origin refs/tags/latest
+
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "aiterm (latest)" --notes "$notes" --latest
+            gh release upload latest assets/* --clobber
+          else
+            gh release create latest assets/* --title "aiterm (latest)" --notes "$notes" --latest
+          fi

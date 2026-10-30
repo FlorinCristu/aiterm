@@ -10,6 +10,13 @@ The AI's command lands on an editable line. Press Enter to run it:
 
 ![The suggested command, run](docs/screenshots/ran.png)
 
+## Download
+
+Every push to `main` is built by GitHub Actions and published as the [latest release](https://github.com/FlorinCristu/aiterm/releases/tag/latest):
+
+- **Windows:** download `aiterm-setup-windows-x64.zip`, unzip it and double-click `install.cmd`.
+- **Linux / macOS (Apple silicon):** download the `.tar.gz`, extract it and put `aiterm` on your PATH.
+
 ## Setup
 
 ```bash
