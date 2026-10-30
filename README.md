@@ -66,3 +66,7 @@ This follows the approach of Warp's `is_likely_shell_command` heuristic:
 - The TLS connection to DeepSeek opens in the background at startup, so the first request skips the handshake.
 - Thinking is off, temperature is 0, and the reply is streamed and capped at 300 tokens.
 - Each command runs as a direct `bash -c` with no login-shell startup. `cd` and `export` are handled in-process so their effect persists.
+
+## License
+
+MIT. See [LICENSE](LICENSE).

@@ -3,6 +3,8 @@ name = "aiterm"
 version = "0.1.0"
 edition = "2021"
 description = "Fast bash front-end that turns natural language into shell commands via DeepSeek"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 rustyline = "14"
