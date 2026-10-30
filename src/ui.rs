@@ -1,6 +1,6 @@
 //! Colours, glyphs and the chrome around the prompt: banner, prompt, spinner, status lines.
 //!
-//! One accent (amber) marks everything the AI touches; the rest stays plain terminal ink.
+//! One accent (the theme's green) marks everything the AI touches; the rest stays plain terminal ink.
 //! Glyphs are limited to ones the stock Windows console fonts (Consolas, Lucida) can draw.
 
 use std::io::Write;
@@ -12,11 +12,12 @@ use std::time::{Duration, Instant};
 
 pub const RESET: &str = "\x1b[0m";
 pub const BOLD: &str = "\x1b[1m";
-pub const AMBER: &str = "\x1b[38;2;255;180;84m";
-pub const SKY: &str = "\x1b[38;2;127;200;248m";
-pub const SAGE: &str = "\x1b[38;2;143;209;158m";
-pub const CORAL: &str = "\x1b[38;2;255;107;107m";
-pub const GRAY: &str = "\x1b[38;2;122;130;144m";
+// Plain ANSI colours, so the loaded theme (see theme.rs) decides how they look.
+pub const ACCENT: &str = "\x1b[32m";
+pub const CWD: &str = "\x1b[34m";
+pub const BRANCH: &str = "\x1b[35m";
+pub const FAIL: &str = "\x1b[31m";
+pub const MUTED: &str = "\x1b[90m";
 
 pub const SPARK: &str = "♦";
 pub const ARROW: &str = "›";
@@ -38,44 +39,44 @@ pub fn banner(bash: &Path, model: Option<&str>) {
     let example = EXAMPLES[(seed() as usize) % EXAMPLES.len()];
     println!();
     for row in WORDMARK {
-        println!("  {AMBER}{BOLD}{row}{RESET}");
+        println!("  {ACCENT}{BOLD}{row}{RESET}");
     }
     println!();
     println!("  Type a command, or just say what you want.");
-    println!("  {GRAY}try{RESET}  {AMBER}{example}{RESET}");
+    println!("  {MUTED}try{RESET}  {ACCENT}{example}{RESET}");
     match model {
-        Some(m) => println!("  {GRAY}{SPARK} {m}  ·  bash {}  ·  ? for help{RESET}", bash.display()),
+        Some(m) => println!("  {MUTED}{SPARK} {m}  ·  bash {}  ·  ? for help{RESET}", bash.display()),
         None => println!(
-            "  {CORAL}{SPARK} AI is off{RESET}{GRAY}  ·  type / to add your DeepSeek key  ·  ? for help{RESET}"
+            "  {FAIL}{SPARK} AI is off{RESET}{MUTED}  ·  type / to add your DeepSeek key  ·  ? for help{RESET}"
         ),
     }
     println!();
 }
 
 pub fn help() {
-    let row = |left: &str, right: &str| println!("  {BOLD}{left:<16}{RESET}{GRAY}{right}{RESET}");
+    let row = |left: &str, right: &str| println!("  {BOLD}{left:<16}{RESET}{MUTED}{right}{RESET}");
     println!();
     row("ls -la", "runs in bash, exactly as typed");
-    println!("  {AMBER}{:<16}{RESET}{GRAY}goes to the AI; you get a command to edit, Enter runs it{RESET}", "show big files");
+    println!("  {ACCENT}{:<16}{RESET}{MUTED}goes to the AI; you get a command to edit, Enter runs it{RESET}", "show big files");
     row("#anything", "always ask the AI");
     row("!anything", "always run it in bash");
     row("cd -", "back to the previous folder");
     row("/", "settings: add, replace or remove your DeepSeek key");
     println!();
-    println!("  {GRAY}While you type, text turns {AMBER}amber{GRAY} when it will go to the AI.{RESET}");
-    println!("  {GRAY}↑ ↓ history  ·  Tab completes paths  ·  Ctrl-C cancels  ·  exit quits{RESET}");
+    println!("  {MUTED}While you type, text turns {ACCENT}green{MUTED} when it will go to the AI.{RESET}");
+    println!("  {MUTED}↑ ↓ history  ·  Tab completes paths  ·  Ctrl-C cancels  ·  exit quits{RESET}");
     println!();
 }
 
 /// The prompt as rustyline measures it (plain) and as it is drawn (coloured).
 pub fn prompt(cwd: &str, branch: Option<&str>, last_failed: bool) -> (String, String) {
-    let arrow_colour = if last_failed { CORAL } else { AMBER };
+    let arrow_colour = if last_failed { FAIL } else { ACCENT };
     match branch {
         Some(b) => (
             format!("{cwd} {b} {ARROW} "),
-            format!("{SKY}{BOLD}{cwd}{RESET} {SAGE}{b}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} "),
+            format!("{CWD}{BOLD}{cwd}{RESET} {BRANCH}{b}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} "),
         ),
-        None => (format!("{cwd} {ARROW} "), format!("{SKY}{BOLD}{cwd}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} ")),
+        None => (format!("{cwd} {ARROW} "), format!("{CWD}{BOLD}{cwd}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} ")),
     }
 }
 
@@ -111,10 +112,10 @@ pub fn git_branch(cwd: &Path) -> Option<String> {
 pub fn report(code: i32, took: Duration) {
     let t = fmt_duration(took);
     match code {
-        0 if took >= Duration::from_secs(2) => println!("{GRAY}done in {t}{RESET}"),
+        0 if took >= Duration::from_secs(2) => println!("{MUTED}done in {t}{RESET}"),
         0 => {}
-        130 => println!("{GRAY}interrupted · {t}{RESET}"),
-        c => println!("{CORAL}exit {c}{RESET}{GRAY} · {t}{RESET}"),
+        130 => println!("{MUTED}interrupted · {t}{RESET}"),
+        c => println!("{FAIL}exit {c}{RESET}{MUTED} · {t}{RESET}"),
     }
 }
 
@@ -146,7 +147,7 @@ impl Spinner {
             while !flag.load(Ordering::Relaxed) {
                 let _ = write!(
                     out,
-                    "\r\x1b[2K{AMBER}{}{RESET} {GRAY}{label} {:.1}s{RESET}",
+                    "\r\x1b[2K{ACCENT}{}{RESET} {MUTED}{label} {:.1}s{RESET}",
                     FRAMES[i % FRAMES.len()],
                     started.elapsed().as_secs_f32()
                 );

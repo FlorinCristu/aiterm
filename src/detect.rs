@@ -90,10 +90,15 @@ impl Detector {
         {
             return Kind::Shell;
         }
+        // Flags mean a command even when the program isn't installed (`aws --version`), so bash
+        // gets to say "command not found" and we can suggest how to install it.
+        if tokens[1..].iter().any(|t| t.starts_with('-')) {
+            return Kind::Shell;
+        }
         if !self.is_command(first) {
             return Kind::Natural;
         }
-        if tokens.len() == 1 || tokens[1..].iter().any(|t| t.starts_with('-')) {
+        if tokens.len() == 1 {
             return Kind::Shell;
         }
 
@@ -166,7 +171,7 @@ mod tests {
     fn commands() {
         let d = det();
         for s in ["ls", "ls -la", "git status", "git commit -m \"fix the bug\"", "echo hello world",
-                  "cat foo.txt | grep bar", "./run.sh", "X=1 make", "du -sh *", "!find all"] {
+                  "cat foo.txt | grep bar", "./run.sh", "X=1 make", "du -sh *", "!find all", "aws --version"] {
             assert_eq!(d.classify(s), Kind::Shell, "{s}");
         }
     }
