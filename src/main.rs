@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Instant;
 use ui::{ACCENT, ARROW, BOLD, FAIL, MUTED, RESET, SPARK};
 
-const AI_PROMPT: &str = "♦ run › ";
+const AI_PROMPT: &str = "  ♦ run › ";
 
 static CANCEL: AtomicBool = AtomicBool::new(false);
 
@@ -68,7 +68,7 @@ impl Hinter for Input {
 impl Highlighter for Input {
     fn highlight_prompt<'b, 's: 'b, 'p: 'b>(&'s self, prompt: &'p str, _default: bool) -> Cow<'b, str> {
         if prompt == AI_PROMPT {
-            return Cow::Owned(format!("{ACCENT}{BOLD}{SPARK} run {ARROW}{RESET} "));
+            return Cow::Owned(format!("  {ACCENT}{BOLD}{SPARK} run {ARROW}{RESET} "));
         }
         let p = self.prompt.borrow();
         if prompt == p.0 {
@@ -169,7 +169,7 @@ fn main() {
             Kind::Natural => {
                 let request = input.trim_start_matches('#').trim();
                 if client.is_none() {
-                    println!("{FAIL}{SPARK} AI is off.{RESET} {MUTED}Add a DeepSeek key to ask this, or prefix with ! to run it as-is.{RESET}");
+                    println!("  {FAIL}{SPARK} AI is off.{RESET} {MUTED}Add a DeepSeek key to ask this, or prefix with ! to run it as-is.{RESET}");
                     if !settings::set_key(&mut client) {
                         continue;
                     }
@@ -218,7 +218,7 @@ fn main() {
     if let Some(h) = &history {
         let _ = rl.save_history(h);
     }
-    println!("{MUTED}bye {ACCENT}{SPARK}{RESET}");
+    println!("  {MUTED}bye {ACCENT}{SPARK}{RESET}");
     if !own_window {
         theme::restore();
     }
@@ -232,11 +232,11 @@ fn not_found(command: &str, detector: &Detector, manager: install::Manager) -> O
     }
     match install::hint(name, manager) {
         install::Hint::Install(cmd) => {
-            println!("{ACCENT}{SPARK}{RESET} {BOLD}{name}{RESET} {MUTED}isn't installed  ·  Enter installs it  ·  Ctrl-C skips{RESET}");
+            println!("  {ACCENT}{SPARK}{RESET} {BOLD}{name}{RESET} {MUTED}isn't installed  ·  Enter installs it  ·  Ctrl-C skips{RESET}");
             Some(cmd)
         }
         install::Hint::Search(cmd) => {
-            println!("{ACCENT}{SPARK}{RESET} {MUTED}no install recipe for {BOLD}{name}{RESET}{MUTED}  ·  Enter searches for a package  ·  Ctrl-C skips{RESET}");
+            println!("  {ACCENT}{SPARK}{RESET} {MUTED}no install recipe for {BOLD}{name}{RESET}{MUTED}  ·  Enter searches for a package  ·  Ctrl-C skips{RESET}");
             Some(cmd)
         }
     }
@@ -258,7 +258,7 @@ fn ask(client: &ai::Client, request: &str, sh: &Shell, last: &Option<(String, i3
     let result = client.suggest(request, &ctx, &CANCEL, |tok| {
         if let Some(mut s) = spinner.take() {
             s.stop();
-            let _ = write!(out, "{ACCENT}{SPARK} {MUTED}");
+            let _ = write!(out, "  {ACCENT}{SPARK} {MUTED}");
         }
         let _ = write!(out, "{}", tok.replace('\n', " "));
         let _ = out.flush();
@@ -268,13 +268,13 @@ fn ask(client: &ai::Client, request: &str, sh: &Shell, last: &Option<(String, i3
     match result {
         Ok(cmd) => {
             println!(
-                "{ACCENT}{SPARK}{RESET} {MUTED}{}  ·  Enter runs it  ·  edit first if you like  ·  Ctrl-C cancels{RESET}",
+                "  {ACCENT}{SPARK}{RESET} {MUTED}{}  ·  Enter runs it  ·  edit first if you like  ·  Ctrl-C cancels{RESET}",
                 ui::fmt_duration(started.elapsed())
             );
             Some(cmd)
         }
         Err(e) => {
-            eprintln!("{FAIL}{SPARK} {e}{RESET}");
+            eprintln!("  {FAIL}{SPARK} {e}{RESET}");
             None
         }
     }

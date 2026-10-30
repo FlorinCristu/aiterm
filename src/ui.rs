@@ -73,10 +73,10 @@ pub fn prompt(cwd: &str, branch: Option<&str>, last_failed: bool) -> (String, St
     let arrow_colour = if last_failed { FAIL } else { ACCENT };
     match branch {
         Some(b) => (
-            format!("{cwd} {b} {ARROW} "),
-            format!("{CWD}{BOLD}{cwd}{RESET} {BRANCH}{b}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} "),
+            format!("  {cwd} {b} {ARROW} "),
+            format!("  {CWD}{BOLD}{cwd}{RESET} {BRANCH}{b}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} "),
         ),
-        None => (format!("{cwd} {ARROW} "), format!("{CWD}{BOLD}{cwd}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} ")),
+        None => (format!("  {cwd} {ARROW} "), format!("  {CWD}{BOLD}{cwd}{RESET} {arrow_colour}{BOLD}{ARROW}{RESET} ")),
     }
 }
 
@@ -112,10 +112,10 @@ pub fn git_branch(cwd: &Path) -> Option<String> {
 pub fn report(code: i32, took: Duration) {
     let t = fmt_duration(took);
     match code {
-        0 if took >= Duration::from_secs(2) => println!("{MUTED}done in {t}{RESET}"),
+        0 if took >= Duration::from_secs(2) => println!("  {MUTED}done in {t}{RESET}"),
         0 => {}
-        130 => println!("{MUTED}interrupted · {t}{RESET}"),
-        c => println!("{FAIL}exit {c}{RESET}{MUTED} · {t}{RESET}"),
+        130 => println!("  {MUTED}interrupted · {t}{RESET}"),
+        c => println!("  {FAIL}exit {c}{RESET}{MUTED} · {t}{RESET}"),
     }
 }
 
@@ -147,7 +147,7 @@ impl Spinner {
             while !flag.load(Ordering::Relaxed) {
                 let _ = write!(
                     out,
-                    "\r\x1b[2K{ACCENT}{}{RESET} {MUTED}{label} {:.1}s{RESET}",
+                    "\r\x1b[2K  {ACCENT}{}{RESET} {MUTED}{label} {:.1}s{RESET}",
                     FRAMES[i % FRAMES.len()],
                     started.elapsed().as_secs_f32()
                 );
