@@ -1,6 +1,6 @@
 # aiterm
 
-A small, fast bash front-end written in Rust. Type a command and it runs in bash. Type plain English and DeepSeek turns it into a command, which you can edit before pressing Enter to run it.
+A small, fast bash front-end written in Rust. Type a command and it runs in bash. Type plain English and DeepSeek (or Claude or Codex, on your own subscription) turns it into a command, which you can edit before pressing Enter to run it.
 
 ```
 ~/code ❯ git status                         → runs in bash
@@ -23,6 +23,15 @@ cargo build --release
 | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | Any OpenAI-compatible endpoint |
 | `DEEPSEEK_THINKING` | off | Set to `1` to allow reasoning (slower) |
 | `AITERM_BASH` | Git Bash on Windows, `bash` elsewhere | Which bash to run |
+| `AITERM_BACKEND` | saved choice, else `deepseek` | `deepseek`, `claude` or `codex` |
+| `AITERM_CLAUDE_MODEL` | `haiku` | Model for the Claude backend |
+| `AITERM_CODEX_MODEL` | Codex's default | Model for the Codex backend |
+
+### Use your Claude or ChatGPT subscription instead
+
+Type `/`, choose **1 AI**, then pick **Claude** or **Codex**. aiterm runs the official CLI headless (`claude -p` or `codex exec`), so your requests use the plan you signed in to through that CLI's browser login. aiterm never handles your password or token. The menu can start the sign-in for you (`claude auth login` / `codex login`), and the choice is saved in `~/.aiterm_backend`.
+
+You need the CLI on PATH (`npm install -g @anthropic-ai/claude-code` or `npm install -g @openai/codex`). This is slower than DeepSeek: each request starts the CLI, so a reply takes a few seconds (about 5s with Claude Haiku) rather than half a second.
 
 ## Install on Windows (Start Menu + PATH, no admin)
 

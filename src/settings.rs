@@ -1,9 +1,9 @@
-//! The `/` settings menu: the DeepSeek key and the colour theme, without leaving aiterm.
+//! The `/` settings menu: which AI answers, the DeepSeek key and the colour theme, without leaving aiterm.
 //!
 //! Key entry uses its own line editor with masked echo, so the key never reaches the
 //! screen, the scrollback or ~/.aiterm_history.
 
-use crate::{ai, theme};
+use crate::{ai, cli, theme};
 use crate::ui::{ACCENT, BOLD, FAIL, MUTED, RESET, BRANCH, SPARK};
 use rustyline::completion::Completer;
 use rustyline::highlight::Highlighter;
@@ -32,28 +32,108 @@ impl Highlighter for Masked {
     }
 }
 
-pub fn menu(client: &mut Option<ai::Client>) {
+pub fn menu(backend: &mut Option<ai::Backend>) {
     println!();
     println!("  {ACCENT}{BOLD}{SPARK} settings{RESET}");
-    let status = match client {
-        Some(c) if ai::env_key().is_some() => format!("{BRANCH}{}{RESET}{MUTED}  from DEEPSEEK_API_KEY{RESET}", c.masked_key()),
-        Some(c) => format!("{BRANCH}{}{RESET}{MUTED}  saved in ~/.aiterm_key{RESET}", c.masked_key()),
-        None => format!("{FAIL}not set{RESET}"),
+    let using = match backend {
+        Some(b) => format!("{BRANCH}{}{RESET}", b.label()),
+        None => format!("{FAIL}off{RESET}"),
     };
-    println!("  {BOLD}1{RESET}  DeepSeek key   {status}");
-    if client.is_some() {
-        println!("  {BOLD}2{RESET}  Remove key");
+    println!("  {BOLD}1{RESET}  AI             {using}{MUTED}  DeepSeek, or your Claude / ChatGPT subscription{RESET}");
+    let key = ai::Client::from_env().map(|c| c.masked_key());
+    let key_status = match &key {
+        Some(k) if ai::env_key().is_some() => format!("{BRANCH}{k}{RESET}{MUTED}  from DEEPSEEK_API_KEY{RESET}"),
+        Some(k) => format!("{BRANCH}{k}{RESET}{MUTED}  saved in ~/.aiterm_key{RESET}"),
+        None => format!("{MUTED}not set{RESET}"),
+    };
+    println!("  {BOLD}2{RESET}  DeepSeek key   {key_status}");
+    if key.is_some() {
+        println!("  {BOLD}3{RESET}  Remove key");
     }
-    println!("  {BOLD}3{RESET}  Theme          {BRANCH}{}{RESET}{MUTED}  any theme from terminalcolors.com{RESET}", theme::load().name);
+    println!("  {BOLD}4{RESET}  Theme          {BRANCH}{}{RESET}{MUTED}  any theme from terminalcolors.com{RESET}", theme::load().name);
+    if let Some(ai::Backend::Cli(c)) = backend {
+        println!("  {BOLD}5{RESET}  Sign in        {MUTED}opens your browser via `{}`{RESET}", c.kind.login_hint());
+    }
     println!("  {MUTED}Enter closes  ·  Ctrl+= / Ctrl+- / Ctrl+0 resize the text{RESET}");
     println!();
     match read_plain("  choose › ").as_deref() {
         Some("1") => {
-            set_key(client);
+            choose_backend(backend);
         }
-        Some("2") if client.is_some() => remove_key(client),
-        Some("3") => set_theme(),
+        Some("2") => {
+            set_key(backend);
+        }
+        Some("3") if key.is_some() => remove_key(backend),
+        Some("4") => set_theme(),
+        Some("5") => {
+            if let Some(ai::Backend::Cli(c)) = backend {
+                sign_in(c);
+            }
+        }
         _ => {}
+    }
+}
+
+/// Pick DeepSeek or a subscription CLI and save the choice. Returns whether AI is now on.
+pub fn choose_backend(backend: &mut Option<ai::Backend>) -> bool {
+    println!("  {BOLD}1{RESET}  DeepSeek   {MUTED}API key  ·  fastest, about half a second{RESET}");
+    println!("  {BOLD}2{RESET}  Claude     {MUTED}your Claude Pro/Max plan, through the claude CLI  ·  a few seconds{RESET}");
+    println!("  {BOLD}3{RESET}  Codex      {MUTED}your ChatGPT plan, through the codex CLI  ·  a few seconds{RESET}");
+    let kind = match read_plain(&format!("  {SPARK} AI › ")).as_deref() {
+        Some("1") => None,
+        Some("2") => Some(cli::Kind::Claude),
+        Some("3") => Some(cli::Kind::Codex),
+        _ => return backend.is_some(),
+    };
+    let Some(kind) = kind else {
+        save_choice(None);
+        *backend = ai::Client::from_env().map(ai::Backend::DeepSeek);
+        if backend.is_none() {
+            return set_key(backend);
+        }
+        on(backend);
+        return true;
+    };
+    let Some(c) = cli::Cli::find(kind) else {
+        println!("  {FAIL}{SPARK} the {} CLI isn't on PATH.{RESET} {MUTED}Install it with: {}{RESET}", kind.name(), kind.install_hint());
+        println!();
+        return backend.is_some();
+    };
+    save_choice(Some(kind));
+    println!("  {MUTED}aiterm uses the {} CLI's own sign-in; it never sees your password or token.{RESET}", kind.name());
+    if read_plain(&format!("  {MUTED}Sign in with your browser now? y signs in, Enter skips if you already are ›{RESET} "))
+        .is_some_and(|a| a.eq_ignore_ascii_case("y"))
+    {
+        sign_in(&c);
+    }
+    *backend = Some(ai::Backend::Cli(c));
+    on(backend);
+    true
+}
+
+fn sign_in(c: &cli::Cli) {
+    if c.login() {
+        println!("  {ACCENT}{SPARK}{RESET} signed in");
+    } else {
+        println!("  {FAIL}{SPARK} sign-in didn't finish.{RESET} {MUTED}You can also run `{}` yourself.{RESET}", c.kind.login_hint());
+    }
+    println!();
+}
+
+fn save_choice(kind: Option<cli::Kind>) {
+    if let Err(e) = ai::save_choice(kind) {
+        println!("  {FAIL}{SPARK} could not save the choice in ~/.aiterm_backend: {e}{RESET}");
+    }
+    if std::env::var("AITERM_BACKEND").is_ok() {
+        println!("  {MUTED}Note: AITERM_BACKEND is set in your environment; it wins in new windows.{RESET}");
+    }
+}
+
+fn on(backend: &Option<ai::Backend>) {
+    if let Some(b) = backend {
+        b.warm_up();
+        println!("  {ACCENT}{SPARK}{RESET} AI is on  {MUTED}·  {}{RESET}", b.label());
+        println!();
     }
 }
 
@@ -86,7 +166,8 @@ fn set_theme() {
 }
 
 /// Ask for a key, check it against DeepSeek, save it. Returns whether AI is now on.
-pub fn set_key(client: &mut Option<ai::Client>) -> bool {
+/// The key only takes over when DeepSeek is the chosen backend.
+pub fn set_key(backend: &mut Option<ai::Backend>) -> bool {
     println!("  {MUTED}Paste your key from platform.deepseek.com/api_keys (Enter to skip){RESET}");
     let Some(key) = read_masked(&format!("  {SPARK} key › ")) else { return false };
     let key = key.trim().to_string();
@@ -112,14 +193,19 @@ pub fn set_key(client: &mut Option<ai::Client>) -> bool {
     if ai::env_key().is_some() {
         println!("  {MUTED}Note: DEEPSEEK_API_KEY is set in your environment; it wins in new windows.{RESET}");
     }
+    if ai::chosen().is_some() {
+        println!("  {ACCENT}{SPARK}{RESET} key saved in ~/.aiterm_key  {MUTED}·  pick DeepSeek under 1 to use it{RESET}");
+        println!();
+        return backend.is_some();
+    }
     candidate.warm_up();
     println!("  {ACCENT}{SPARK}{RESET} AI is on  {MUTED}·  {}  ·  saved in ~/.aiterm_key{RESET}", candidate.model());
     println!();
-    *client = Some(candidate);
+    *backend = Some(ai::Backend::DeepSeek(candidate));
     true
 }
 
-fn remove_key(client: &mut Option<ai::Client>) {
+fn remove_key(backend: &mut Option<ai::Backend>) {
     if let Err(e) = ai::remove_key() {
         println!("  {FAIL}{SPARK} could not remove ~/.aiterm_key: {e}{RESET}");
         return;
@@ -128,8 +214,12 @@ fn remove_key(client: &mut Option<ai::Client>) {
         println!("  {MUTED}Removed ~/.aiterm_key, but DEEPSEEK_API_KEY is still set in your environment.{RESET}");
         return;
     }
-    *client = None;
-    println!("  {MUTED}Key removed. AI is off.{RESET}");
+    if matches!(backend, Some(ai::Backend::DeepSeek(_))) {
+        *backend = None;
+        println!("  {MUTED}Key removed. AI is off.{RESET}");
+    } else {
+        println!("  {MUTED}Key removed.{RESET}");
+    }
     println!();
 }
 

@@ -1,4 +1,5 @@
 mod ai;
+mod cli;
 mod detect;
 mod font;
 mod install;
@@ -116,7 +117,7 @@ fn main() {
     let mut sh = Shell::new();
     let detector = Arc::new(Detector::new(&sh.tool_dirs()));
     let manager = install::Manager::detect(&detector);
-    let mut client = ai::Client::from_env();
+    let mut client = ai::Backend::load();
     if let Some(c) = &client {
         c.warm_up();
     }
@@ -132,7 +133,7 @@ fn main() {
         let _ = rl.load_history(h);
     }
 
-    ui::banner(&sh.bash, client.as_ref().map(|c| c.model()));
+    ui::banner(&sh.bash, client.as_ref().map(|c| c.label()).as_deref());
 
     let mut last: Option<(String, i32)> = None;
     'repl: loop {
@@ -169,8 +170,8 @@ fn main() {
             Kind::Natural => {
                 let request = input.trim_start_matches('#').trim();
                 if client.is_none() {
-                    println!("  {FAIL}{SPARK} AI is off.{RESET} {MUTED}Add a DeepSeek key to ask this, or prefix with ! to run it as-is.{RESET}");
-                    if !settings::set_key(&mut client) {
+                    println!("  {FAIL}{SPARK} AI is off.{RESET} {MUTED}Pick an AI to ask this, or prefix with ! to run it as-is.{RESET}");
+                    if !settings::choose_backend(&mut client) {
                         continue;
                     }
                 }
@@ -243,7 +244,7 @@ fn not_found(command: &str, detector: &Detector, manager: install::Manager) -> O
 }
 
 /// Stream the suggestion on a dim line, then erase it so the editable command replaces it.
-fn ask(client: &ai::Client, request: &str, sh: &Shell, last: &Option<(String, i32)>) -> Option<String> {
+fn ask(client: &ai::Backend, request: &str, sh: &Shell, last: &Option<(String, i32)>) -> Option<String> {
     let files = list_files(&sh.cwd);
     let cwd = sh.cwd.display().to_string();
     let ctx = ai::Context {

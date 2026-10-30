@@ -1,5 +1,7 @@
-//! DeepSeek client (OpenAI-compatible chat completions, streamed over SSE).
+//! DeepSeek client (OpenAI-compatible chat completions, streamed over SSE), and the backend
+//! switch that can send requests to the Claude Code or Codex CLI instead.
 
+use crate::cli::{self, Cli};
 use serde_json::{json, Value};
 use std::io::{BufRead, BufReader};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,6 +20,70 @@ pub struct Context<'a> {
     pub os: &'a str,
     pub files: &'a [String],
     pub last: Option<(&'a str, i32)>,
+}
+
+/// Who answers: DeepSeek over HTTP with an API key, or a subscription CLI (Claude Code, Codex).
+pub enum Backend {
+    DeepSeek(Client),
+    Cli(Cli),
+}
+
+impl Backend {
+    /// AITERM_BACKEND, else the choice saved in ~/.aiterm_backend, else DeepSeek.
+    /// None when the chosen backend isn't usable yet (no key, CLI not installed).
+    pub fn load() -> Option<Self> {
+        match chosen() {
+            Some(kind) => Cli::find(kind).map(Backend::Cli),
+            None => Client::from_env().map(Backend::DeepSeek),
+        }
+    }
+
+    pub fn label(&self) -> String {
+        match self {
+            Backend::DeepSeek(c) => c.model().to_string(),
+            Backend::Cli(c) => c.label(),
+        }
+    }
+
+    pub fn warm_up(&self) {
+        if let Backend::DeepSeek(c) = self {
+            c.warm_up();
+        }
+    }
+
+    pub fn suggest(
+        &self,
+        request: &str,
+        ctx: &Context,
+        cancel: &AtomicBool,
+        on_token: impl FnMut(&str),
+    ) -> Result<String, String> {
+        match self {
+            Backend::DeepSeek(c) => c.suggest(request, ctx, cancel, on_token),
+            Backend::Cli(c) => {
+                let reply = c.ask(&format!("{}\nRequest: {request}\n", system_prompt(ctx)), cancel)?;
+                let cmd = clean(&reply);
+                if cmd.is_empty() { Err("model returned no command".into()) } else { Ok(cmd) }
+            }
+        }
+    }
+}
+
+/// The saved CLI choice; None means DeepSeek.
+pub fn chosen() -> Option<cli::Kind> {
+    let saved = std::env::var("AITERM_BACKEND")
+        .ok()
+        .or_else(|| std::fs::read_to_string(home_dir()?.join(".aiterm_backend")).ok())?;
+    match saved.trim().to_lowercase().as_str() {
+        "claude" => Some(cli::Kind::Claude),
+        "codex" => Some(cli::Kind::Codex),
+        _ => None,
+    }
+}
+
+pub fn save_choice(kind: Option<cli::Kind>) -> std::io::Result<()> {
+    let path = home_dir().ok_or_else(|| std::io::Error::other("no home directory"))?.join(".aiterm_backend");
+    std::fs::write(path, kind.map_or("deepseek", cli::Kind::name))
 }
 
 impl Client {
