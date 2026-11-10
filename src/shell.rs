@@ -308,10 +308,11 @@ mod tests {
 
     #[test]
     fn busybox_name() {
-        assert!(is_busybox(Path::new(r"C:\tools\busybox.exe")));
-        assert!(is_busybox(Path::new(r"C:\tools\BusyBox64u.exe")));
-        assert!(!is_busybox(Path::new(r"C:\Program Files\Git\bin\bash.exe")));
-        assert!(!is_busybox(Path::new(r"C:\busybox\bash.exe")));
+        // Forward slashes: `\` only separates paths on Windows, and CI runs this on Linux and macOS too.
+        assert!(is_busybox(Path::new("C:/tools/busybox.exe")));
+        assert!(is_busybox(Path::new("C:/tools/BusyBox64u.exe")));
+        assert!(!is_busybox(Path::new("C:/Program Files/Git/bin/bash.exe")));
+        assert!(!is_busybox(Path::new("C:/busybox/bash.exe")));
     }
 
     #[test]
