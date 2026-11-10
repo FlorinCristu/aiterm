@@ -13,7 +13,7 @@ pub enum Kind {
 }
 
 const BASH_BUILTINS: &[&str] = &[
-    ".", ":", "[", "[[", "alias", "bg", "bind", "break", "builtin", "case", "cd", "command",
+    ".", ":", "[", "[[", "alias", "bg", "bind", "break", "builtin", "case", "cd", "z", "command",
     "compgen", "complete", "continue", "declare", "dirs", "disown", "echo", "enable", "eval",
     "exec", "exit", "export", "false", "fc", "fg", "for", "function", "getopts", "hash", "help",
     "history", "if", "jobs", "kill", "let", "local", "logout", "popd", "printf", "pushd", "pwd",
@@ -40,8 +40,11 @@ pub struct Detector {
 }
 
 impl Detector {
-    pub fn new(extra_dirs: &[std::path::PathBuf]) -> Self {
+    /// `extra_dirs`: tool folders the shell sees beyond PATH; `extra_names`: commands with no file
+    /// at all (busybox applets).
+    pub fn new(extra_dirs: &[std::path::PathBuf], extra_names: &[String]) -> Self {
         let mut commands: HashSet<String> = BASH_BUILTINS.iter().map(|s| s.to_string()).collect();
+        commands.extend(extra_names.iter().map(|n| n.to_ascii_lowercase()));
         let mut dirs: Vec<std::path::PathBuf> =
             std::env::var_os("PATH").map(|p| std::env::split_paths(&p).collect()).unwrap_or_default();
         dirs.extend_from_slice(extra_dirs);
@@ -61,6 +64,16 @@ impl Detector {
     pub fn is_command(&self, word: &str) -> bool {
         let w = if cfg!(windows) { word.to_ascii_lowercase() } else { word.to_string() };
         self.commands.contains(&w)
+    }
+
+    /// Command names starting with `prefix`, for Tab: sorted, at most 50. Stored lower-case and
+    /// extension-less on Windows (see `command_name`), so the prefix is folded the same way.
+    pub fn commands_with_prefix(&self, prefix: &str) -> Vec<&str> {
+        let p = if cfg!(windows) { prefix.to_ascii_lowercase() } else { prefix.to_string() };
+        let mut v: Vec<&str> = self.commands.iter().map(String::as_str).filter(|c| c.starts_with(&p)).collect();
+        v.sort_unstable();
+        v.truncate(50);
+        v
     }
 
     pub fn classify(&self, input: &str) -> Kind {
@@ -174,6 +187,14 @@ mod tests {
                   "cat foo.txt | grep bar", "./run.sh", "X=1 make", "du -sh *", "!find all", "aws --version"] {
             assert_eq!(d.classify(s), Kind::Shell, "{s}");
         }
+    }
+
+    #[test]
+    fn prefix() {
+        let d = det();
+        assert_eq!(d.commands_with_prefix("gr"), ["grep"]);
+        assert_eq!(d.commands_with_prefix("ex"), ["exec", "exit", "export"]);
+        assert!(d.commands_with_prefix("zz").is_empty());
     }
 
     #[test]

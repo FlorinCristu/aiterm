@@ -15,6 +15,12 @@ ctrlc = "3"
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_System_Console", "Win32_System_LibraryLoader", "Win32_UI_Input_KeyboardAndMouse", "Win32_UI_WindowsAndMessaging"] }
 
+# `app/` is the windowed host (aiterm-app.exe); a plain `cargo build` builds both.
+# `setup/` is the single-file installer; packaging\build.ps1 builds it with the files to embed.
+[workspace]
+members = ["app", "setup"]
+default-members = [".", "app"]
+
 [profile.release]
 opt-level = 3
 lto = true

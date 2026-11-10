@@ -148,9 +148,10 @@ mod imp {
         CallNextHookEx(std::ptr::null_mut(), code, wparam, lparam)
     }
 
-    /// Start listening for the zoom keys. Does nothing inside Windows Terminal, which has its own.
+    /// Start listening for the zoom keys. Does nothing inside Windows Terminal or aiterm-app,
+    /// which have their own.
     pub fn watch_zoom_keys() {
-        if std::env::var_os("WT_SESSION").is_some() || unsafe { GetConsoleWindow() }.is_null() {
+        if std::env::var_os("WT_SESSION").is_some() || crate::window::in_app() || unsafe { GetConsoleWindow() }.is_null() {
             return;
         }
         std::thread::spawn(|| unsafe {

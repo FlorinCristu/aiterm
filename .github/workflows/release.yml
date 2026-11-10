@@ -19,12 +19,16 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # Windows builds the whole default workspace (aiterm + aiterm-app) and the installer.
           - os: windows-latest
-            asset: aiterm-setup-windows-x64.zip
+            asset: aiterm-setup-windows-x64.*
+          # Elsewhere only the console program; aiterm-app and aiterm-setup are Windows-only.
           - os: ubuntu-latest
             asset: aiterm-linux-x64.tar.gz
+            packages: -p aiterm
           - os: macos-latest
             asset: aiterm-macos-arm64.tar.gz
+            packages: -p aiterm
     runs-on: ${{ matrix.os }}
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target
@@ -33,25 +37,27 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
 
-      - run: cargo test --release
+      - run: cargo test --release ${{ matrix.packages }}
 
       - name: Package (Windows)
         if: runner.os == 'Windows'
         shell: pwsh
         run: |
           ./packaging/build.ps1
-          Move-Item dist/aiterm-setup.zip ${{ matrix.asset }}
+          Move-Item dist/aiterm-setup.exe aiterm-setup-windows-x64.exe
+          Move-Item dist/aiterm-setup.zip aiterm-setup-windows-x64.zip
 
       - name: Package (Linux/macOS)
         if: runner.os != 'Windows'
         run: |
-          cargo build --release
+          cargo build --release ${{ matrix.packages }}
           tar -czf ${{ matrix.asset }} -C target/release aiterm -C "$GITHUB_WORKSPACE" LICENSE README.md
 
       - uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.asset }}
+          name: ${{ matrix.os }}
           path: ${{ matrix.asset }}
+          if-no-files-found: error
 
   publish:
     needs: build
@@ -63,14 +69,24 @@ jobs:
           path: assets
           merge-multiple: true
 
+      # busybox.exe in the Windows build is GPL-2.0: ship its source with it. The version is the
+      # one packaging/fetch-busybox.ps1 pins.
+      - name: Add the busybox source
+        run: |
+          v=$(grep -oE 'FRP-[0-9]+-g[0-9a-f]+' packaging/fetch-busybox.ps1 | head -n 1)
+          test -n "$v"
+          curl -fsSL --retry 3 -o "assets/busybox-w32-$v.tgz" "https://frippery.org/files/busybox/busybox-w32-$v.tgz"
+          tar -tzf "assets/busybox-w32-$v.tgz" > /dev/null
+
       - name: Publish the "latest" release
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           notes="Built from ${GITHUB_SHA::7} on $(date -u +'%Y-%m-%d %H:%M UTC').
 
-          Windows: unzip aiterm-setup-windows-x64.zip and double-click install.cmd.
-          Linux/macOS: extract the tarball and put aiterm on your PATH."
+          Windows: download aiterm-setup-windows-x64.exe and double-click it. It isn't signed, so SmartScreen may warn: click More info, then Run anyway. Or unzip aiterm-setup-windows-x64.zip and double-click install.cmd.
+          Linux/macOS: extract the tarball and put aiterm on your PATH.
+          busybox-w32-*.tgz is the source of the busybox.exe bundled for Windows (GPL-2.0)."
 
           git tag -f latest "$GITHUB_SHA"
           git push -f origin refs/tags/latest

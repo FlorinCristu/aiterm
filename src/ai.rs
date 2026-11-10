@@ -60,12 +60,42 @@ impl Backend {
     ) -> Result<String, String> {
         match self {
             Backend::DeepSeek(c) => c.suggest(request, ctx, cancel, on_token),
-            Backend::Cli(c) => {
-                let reply = c.ask(&format!("{}\nRequest: {request}\n", system_prompt(ctx)), cancel)?;
-                let cmd = clean(&reply);
-                if cmd.is_empty() { Err("model returned no command".into()) } else { Ok(cmd) }
-            }
+            Backend::Cli(c) => command(&c.ask(&flatten(&suggest_messages(request, ctx)), cancel)?),
         }
+    }
+
+    /// Like `suggest`, but the model already proposed `previous` for `request`; `feedback` says what to change.
+    /// Returns the corrected single command.
+    pub fn revise(
+        &self,
+        request: &str,
+        previous: &str,
+        feedback: &str,
+        ctx: &Context,
+        cancel: &AtomicBool,
+        on_token: impl FnMut(&str),
+    ) -> Result<String, String> {
+        let messages = revise_messages(request, previous, feedback, ctx);
+        command(&match self {
+            Backend::DeepSeek(c) => c.chat(messages, 300, cancel, on_token)?,
+            Backend::Cli(c) => c.ask(&flatten(&messages), cancel)?,
+        })
+    }
+
+    /// A short plain-English explanation of what `command` does (what it touches, anything risky). Not a command.
+    pub fn explain(
+        &self,
+        command: &str,
+        ctx: &Context,
+        cancel: &AtomicBool,
+        on_token: impl FnMut(&str),
+    ) -> Result<String, String> {
+        let text = match self {
+            Backend::DeepSeek(c) => c.chat(explain_messages(command, ctx), 200, cancel, on_token)?.trim().to_string(),
+            // No streaming here, so the explanation is tidied before anyone sees it.
+            Backend::Cli(c) => plain(&c.ask(&format!("{}\nCommand: {command}\n", explain_prompt(ctx)), cancel)?),
+        };
+        if text.is_empty() { Err("model returned no explanation".into()) } else { Ok(text) }
     }
 }
 
@@ -151,17 +181,25 @@ impl Client {
         request: &str,
         ctx: &Context,
         cancel: &AtomicBool,
+        on_token: impl FnMut(&str),
+    ) -> Result<String, String> {
+        command(&self.chat(suggest_messages(request, ctx), 300, cancel, on_token)?)
+    }
+
+    /// One streamed chat completion; returns the raw text. `cancel` aborts mid-stream.
+    fn chat(
+        &self,
+        messages: Value,
+        max_tokens: u32,
+        cancel: &AtomicBool,
         mut on_token: impl FnMut(&str),
     ) -> Result<String, String> {
         let mut body = json!({
             "model": self.model,
             "stream": true,
             "temperature": 0,
-            "max_tokens": 300,
-            "messages": [
-                {"role": "system", "content": system_prompt(ctx)},
-                {"role": "user", "content": request},
-            ],
+            "max_tokens": max_tokens,
+            "messages": messages,
         });
         if self.disable_thinking {
             body["thinking"] = json!({"type": "disabled"});
@@ -204,8 +242,7 @@ impl Client {
                 on_token(t);
             }
         }
-        let cmd = clean(&out);
-        if cmd.is_empty() { Err("model returned no command".into()) } else { Ok(cmd) }
+        Ok(out)
     }
 
     fn post(&self, body: &Value) -> Result<ureq::Response, ureq::Error> {
@@ -238,6 +275,69 @@ fn system_prompt(ctx: &Context) -> String {
         s.push_str(&format!("Previous command: `{cmd}` (exit {code})\n"));
     }
     s
+}
+
+fn suggest_messages(request: &str, ctx: &Context) -> Value {
+    json!([
+        {"role": "system", "content": system_prompt(ctx)},
+        {"role": "user", "content": request},
+    ])
+}
+
+/// A real follow-up turn, so the model sees its own answer and the correction to it.
+fn revise_messages(request: &str, previous: &str, feedback: &str, ctx: &Context) -> Value {
+    json!([
+        {"role": "system", "content": system_prompt(ctx)},
+        {"role": "user", "content": request},
+        {"role": "assistant", "content": previous},
+        {"role": "user", "content": format!("Change it: {feedback}\nReply with the full corrected command only.")},
+    ])
+}
+
+fn explain_messages(command: &str, ctx: &Context) -> Value {
+    json!([
+        {"role": "system", "content": explain_prompt(ctx)},
+        {"role": "user", "content": command},
+    ])
+}
+
+fn explain_prompt(ctx: &Context) -> String {
+    format!(
+        "You explain a bash command to the user in plain English.\n\
+         Environment: {os}. Shell: bash. Current directory: {cwd}\n\
+         Rules:\n\
+         - 1 to 3 short lines of plain text: no markdown, no bullets, no code fences, no backticks.\n\
+         - Don't restate the command. Say what it does and what it reads or changes; mention flags only where they matter.\n\
+         - If it deletes, overwrites, moves or changes permissions on anything, or is otherwise risky, say so plainly.\n\
+         - Reply with the explanation only.\n",
+        os = ctx.os,
+        cwd = ctx.cwd
+    )
+}
+
+/// The CLIs take one prompt string: the system prompt, then the turns labelled in order.
+fn flatten(messages: &Value) -> String {
+    let mut s = String::new();
+    for m in messages.as_array().into_iter().flatten() {
+        let content = m["content"].as_str().unwrap_or_default();
+        match m["role"].as_str() {
+            Some("system") => s.push_str(&format!("{content}\n")),
+            Some("assistant") => s.push_str(&format!("You answered: {content}\n")),
+            _ => s.push_str(&format!("Request: {content}\n")),
+        }
+    }
+    s
+}
+
+/// The cleaned command, or an error when nothing usable came back.
+fn command(raw: &str) -> Result<String, String> {
+    let cmd = clean(raw);
+    if cmd.is_empty() { Err("model returned no command".into()) } else { Ok(cmd) }
+}
+
+/// Prose, lightly unmarked: drop fence lines and backticks, keep the wording.
+fn plain(raw: &str) -> String {
+    raw.lines().filter(|l| !l.trim_start().starts_with("```")).collect::<Vec<_>>().join("\n").replace('`', "").trim().to_string()
 }
 
 /// Strip fences, prompts and stray prose the model may add despite instructions.
@@ -299,12 +399,47 @@ fn mask(key: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::clean;
+    use super::*;
+
+    fn ctx() -> Context<'static> {
+        Context { cwd: "/home/u", os: "Linux", files: &[], last: None }
+    }
 
     #[test]
     fn cleans_fences() {
         assert_eq!(clean("```bash\nls -la\n```"), "ls -la");
         assert_eq!(clean("$ du -sh *"), "du -sh *");
         assert_eq!(clean("`pwd`"), "pwd");
+    }
+
+    #[test]
+    fn flattens_like_before() {
+        // The CLI prompt for a plain suggestion must not change.
+        let c = ctx();
+        assert_eq!(flatten(&suggest_messages("list files", &c)), format!("{}\nRequest: list files\n", system_prompt(&c)));
+    }
+
+    #[test]
+    fn revise_is_a_follow_up_turn() {
+        let m = revise_messages("find big files", "find . -size +100M", "only .js files", &ctx());
+        let roles: Vec<_> = m.as_array().unwrap().iter().map(|t| t["role"].as_str().unwrap()).collect();
+        assert_eq!(roles, ["system", "user", "assistant", "user"]);
+        assert!(m[3]["content"].as_str().unwrap().contains("only .js files"));
+        let flat = flatten(&m);
+        assert!(flat.contains("Request: find big files\nYou answered: find . -size +100M\nRequest: Change it: only .js files"));
+    }
+
+    #[test]
+    fn explain_prompt_has_context() {
+        let m = explain_messages("rm -rf build", &ctx());
+        let sys = m[0]["content"].as_str().unwrap();
+        assert!(sys.contains("Linux") && sys.contains("/home/u"));
+        assert_eq!(m[1]["content"], "rm -rf build");
+    }
+
+    #[test]
+    fn strips_markdown_from_prose() {
+        assert_eq!(plain("```\nDeletes `build` for good.\n```"), "Deletes build for good.");
+        assert_eq!(plain("  Lists files.\nIncludes hidden ones.  "), "Lists files.\nIncludes hidden ones.");
     }
 }

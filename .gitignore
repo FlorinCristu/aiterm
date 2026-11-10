@@ -2,3 +2,4 @@
 /dist/
 *.pdb
 dev/screenshots.ps1
+busybox*.exe

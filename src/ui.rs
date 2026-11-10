@@ -4,7 +4,7 @@
 //! Glyphs are limited to ones the stock Windows console fonts (Consolas, Lucida) can draw.
 
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::thread::JoinHandle;
@@ -35,7 +35,7 @@ const EXAMPLES: &[&str] = &[
     "replace tabs with spaces in all .py files",
 ];
 
-pub fn banner(bash: &Path, model: Option<&str>) {
+pub fn banner(sh: &crate::shell::Shell, model: Option<&str>) {
     let example = EXAMPLES[(seed() as usize) % EXAMPLES.len()];
     println!();
     for row in WORDMARK {
@@ -44,8 +44,12 @@ pub fn banner(bash: &Path, model: Option<&str>) {
     println!();
     println!("  Type a command, or just say what you want.");
     println!("  {MUTED}try{RESET}  {ACCENT}{example}{RESET}");
+    if sh.is_missing() {
+        println!("  {FAIL}{SPARK} {}{RESET}", sh.label());
+    }
     match model {
-        Some(m) => println!("  {MUTED}{SPARK} {m}  ·  bash {}  ·  ? for help{RESET}", bash.display()),
+        Some(m) if sh.is_missing() => println!("  {MUTED}{SPARK} {m}  ·  ? for help{RESET}"),
+        Some(m) => println!("  {MUTED}{SPARK} {m}  ·  {}  ·  ? for help{RESET}", sh.label()),
         None => println!(
             "  {FAIL}{SPARK} AI is off{RESET}{MUTED}  ·  type / to pick DeepSeek, Claude or Codex  ·  ? for help{RESET}"
         ),
@@ -60,14 +64,17 @@ pub fn help() {
     println!("  {ACCENT}{:<16}{RESET}{MUTED}goes to the AI; you get a command to edit, Enter runs it{RESET}", "show big files");
     row("#anything", "always ask the AI");
     row("!anything", "always run it in bash");
+    row("?ls -la", "explains a command without running it; ?? explains the last one");
     row("cd -", "back to the previous folder");
+    row("z proj", "jump to the folder you visit most that matches; z lists them");
     row("/", "settings: pick the AI, sign in, DeepSeek key, theme");
-    row("/tab", "new tab here (Windows Terminal), else a new window");
+    row("/tab", "new tab here (a new window in terminals without tabs)");
     row("/window", "new window here");
     row("clear", "clear the screen (or Ctrl-L)");
     println!();
     println!("  {MUTED}While you type, text turns {ACCENT}green{MUTED} when it will go to the AI.{RESET}");
-    println!("  {MUTED}↑ ↓ history  ·  Tab completes paths  ·  Ctrl-C cancels  ·  Ctrl-Shift-T/N new tab/window  ·  exit quits{RESET}");
+    println!("  {MUTED}↑ ↓ history  ·  Tab completes commands, branches and paths  ·  → accepts the grey suggestion{RESET}");
+    println!("  {MUTED}Ctrl-C cancels  ·  Ctrl-Shift-T/N new tab/window  ·  exit quits{RESET}");
     println!();
 }
 
@@ -89,24 +96,27 @@ pub fn set_title(cwd: &str) {
 
 /// Current branch (or short commit when detached), read straight from `.git` so the prompt costs no process.
 pub fn git_branch(cwd: &Path) -> Option<String> {
+    let head = std::fs::read_to_string(git_dir(cwd)?.join("HEAD")).ok()?;
+    let head = head.trim();
+    Some(match head.strip_prefix("ref: refs/heads/") {
+        Some(branch) => branch.to_string(),
+        None => head.chars().take(7).collect(),
+    })
+}
+
+/// The repo's git dir above `cwd`; a worktree's `.git` file points at `.git/worktrees/<name>`.
+pub fn git_dir(cwd: &Path) -> Option<PathBuf> {
     let mut dir = Some(cwd);
     while let Some(d) = dir {
         let dot_git = d.join(".git");
-        let git_dir = if dot_git.is_dir() {
-            dot_git
-        } else if dot_git.is_file() {
+        if dot_git.is_dir() {
+            return Some(dot_git);
+        }
+        if dot_git.is_file() {
             let s = std::fs::read_to_string(&dot_git).ok()?;
-            d.join(s.trim().strip_prefix("gitdir:")?.trim())
-        } else {
-            dir = d.parent();
-            continue;
-        };
-        let head = std::fs::read_to_string(git_dir.join("HEAD")).ok()?;
-        let head = head.trim();
-        return Some(match head.strip_prefix("ref: refs/heads/") {
-            Some(branch) => branch.to_string(),
-            None => head.chars().take(7).collect(),
-        });
+            return Some(d.join(s.trim().strip_prefix("gitdir:")?.trim()));
+        }
+        dir = d.parent();
     }
     None
 }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>aiterm</title>
+<link rel="stylesheet" href="xterm.css">
+<style>
+  :root { --bg: #2c323b; --fg: #eaeaea; --bar: #262b33; --muted: #8b8f95; --accent: #98c379; }
+  html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); }
+  body { display: flex; flex-direction: column; user-select: none; touch-action: none; }
+  #tabs { flex: none; display: flex; height: 30px; padding: 0 4px; background: var(--bar);
+          font: 12px "Segoe UI Variable Text", "Segoe UI", sans-serif; color: var(--muted); }
+  .tab { display: flex; align-items: center; gap: 4px; min-width: 0; max-width: 220px; padding: 0 4px 0 12px;
+         border-top: 2px solid transparent; cursor: default; }
+  .tab.on { background: var(--bg); color: var(--fg); border-top-color: var(--accent); }
+  .tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab b { font-weight: normal; width: 18px; line-height: 18px; text-align: center; border-radius: 4px; visibility: hidden; }
+  .tab:hover b, .tab.on b { visibility: visible; }
+  .tab b:hover, #plus:hover { background: rgba(128, 128, 128, .25); }
+  #plus { align-self: center; width: 24px; line-height: 22px; margin-left: 2px; text-align: center; border-radius: 4px;
+          font-size: 16px; cursor: default; }
+  #terms { flex: 1; position: relative; min-height: 0; }
+  .term { position: absolute; inset: 6px 4px 4px 10px; visibility: hidden; }
+  .term.on { visibility: visible; }
+</style>
+</head>
+<body>
+<div id="tabs"><div id="plus" title="New tab  (Ctrl+Shift+T)">+</div></div>
+<div id="terms"></div>
+<script src="xterm.js"></script>
+<script src="addon-fit.js"></script>
+<script src="addon-webgl.js"></script>
+<script>/*BOOT*/</script>
+<script src="app.js"></script>
+</body>
+</html>

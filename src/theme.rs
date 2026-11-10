@@ -57,7 +57,9 @@ pub fn load() -> Theme {
 
 pub fn save(t: &Theme) -> std::io::Result<()> {
     let p = path().ok_or_else(|| std::io::Error::other("no home directory"))?;
-    std::fs::write(p, t.to_ghostty())
+    std::fs::write(p, t.to_ghostty())?;
+    crate::window::theme_changed();
+    Ok(())
 }
 
 /// A terminalcolors.com theme page, a direct link to any supported file, or a local file.
@@ -238,6 +240,9 @@ impl Theme {
     /// Recolour the window: the console's own colour table in a classic console window,
     /// OSC 4/10/11/12 in Windows Terminal and every other modern terminal.
     pub fn apply(&self) {
+        if crate::window::in_app() {
+            return; // aiterm-app colours its own window from ~/.aiterm_theme
+        }
         #[cfg(windows)]
         if !modern_terminal() && console::apply(self) {
             return;
@@ -257,6 +262,9 @@ impl Theme {
 
 /// Put the terminal's own colours back when aiterm shares its window with something else.
 pub fn restore() {
+    if crate::window::in_app() {
+        return;
+    }
     #[cfg(windows)]
     if !modern_terminal() {
         console::restore();
