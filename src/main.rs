@@ -7,6 +7,7 @@ mod settings;
 mod shell;
 mod theme;
 mod ui;
+mod window;
 
 use detect::{Detector, Kind};
 use rustyline::completion::{Completer, FilenameCompleter, Pair};
@@ -140,6 +141,7 @@ fn main() {
         CANCEL.store(false, Ordering::Relaxed);
         let cwd = shell::pretty_cwd(&sh.cwd);
         ui::set_title(&cwd);
+        window::set_cwd(&sh.cwd);
         let branch = ui::git_branch(&sh.cwd);
         let failed = matches!(&last, Some((_, c)) if *c != 0 && *c != 130);
         let (prompt, coloured) = ui::prompt(&cwd, branch.as_deref(), failed);
@@ -157,6 +159,22 @@ fn main() {
         }
         if matches!(input, "/" | "/settings" | "/key") {
             settings::menu(&mut client);
+            continue;
+        }
+        if let Some(kind) = match input {
+            "/tab" | "/newtab" => Some(window::Kind::Tab),
+            "/window" | "/new" | "/newwindow" => Some(window::Kind::Window),
+            _ => None,
+        } {
+            match window::open(kind, &sh.cwd) {
+                Ok(what) => println!("  {MUTED}{SPARK} opened a {what} in {cwd}{RESET}"),
+                Err(e) => eprintln!("  {FAIL}{SPARK} couldn't open one: {e}{RESET}"),
+            }
+            continue;
+        }
+        if matches!(input, "/clear" | "clear" | "cls") {
+            print!("\x1b[2J\x1b[3J\x1b[H");
+            let _ = std::io::stdout().flush();
             continue;
         }
         if input == "?" {

@@ -107,6 +107,31 @@ mod imp {
             let kb = &*(lparam as *const KBDLLHOOKSTRUCT);
             let ctrl = GetAsyncKeyState(VK_CONTROL as i32) < 0;
             let ours = GetForegroundWindow() == GetConsoleWindow();
+            let shift = GetAsyncKeyState(VK_SHIFT as i32) < 0;
+            if ctrl && shift && ours {
+                let kind = match kb.vkCode as u8 {
+                    b'T' => Some(Some(crate::window::Kind::Tab)),
+                    b'N' => Some(Some(crate::window::Kind::Window)),
+                    b'W' => Some(None),
+                    _ => None,
+                };
+                match kind {
+                    Some(Some(kind)) => {
+                        // Off the hook thread: a slow hook makes Windows drop it.
+                        std::thread::spawn(move || {
+                            if let Some(dir) = crate::window::current_cwd() {
+                                let _ = crate::window::open(kind, &dir);
+                            }
+                        });
+                        return 1;
+                    }
+                    Some(None) => {
+                        PostMessageW(GetConsoleWindow(), WM_CLOSE, 0, 0);
+                        return 1;
+                    }
+                    None => {}
+                }
+            }
             if ctrl && ours {
                 let step = match kb.vkCode as u16 {
                     VK_OEM_PLUS | VK_ADD => Some(2),

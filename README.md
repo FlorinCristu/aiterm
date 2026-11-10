@@ -62,6 +62,8 @@ The Start Menu shortcut opens aiterm in its own console window, so the taskbar s
 - `/` opens settings. `?` shows a short help.
 - Tab completes file names. Up and Down browse history, saved in `~/.aiterm_history`.
 - Ctrl-C stops the running command or cancels an AI request. Ctrl-D, `exit` or `logout` quits.
+- `/tab` opens a new tab in the current folder (in Windows Terminal; elsewhere a new window), `/window` a new window. In the classic console Ctrl+Shift+T / Ctrl+Shift+N do the same and Ctrl+Shift+W closes the window.
+- `clear` or Ctrl-L clears the screen.
 - Ctrl+= / Ctrl+- / Ctrl+0 make the text bigger, smaller, or reset it (see below).
 
 ## Settings (`/`)

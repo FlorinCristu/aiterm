@@ -62,9 +62,12 @@ pub fn help() {
     row("!anything", "always run it in bash");
     row("cd -", "back to the previous folder");
     row("/", "settings: pick the AI, sign in, DeepSeek key, theme");
+    row("/tab", "new tab here (Windows Terminal), else a new window");
+    row("/window", "new window here");
+    row("clear", "clear the screen (or Ctrl-L)");
     println!();
     println!("  {MUTED}While you type, text turns {ACCENT}green{MUTED} when it will go to the AI.{RESET}");
-    println!("  {MUTED}↑ ↓ history  ·  Tab completes paths  ·  Ctrl-C cancels  ·  exit quits{RESET}");
+    println!("  {MUTED}↑ ↓ history  ·  Tab completes paths  ·  Ctrl-C cancels  ·  Ctrl-Shift-T/N new tab/window  ·  exit quits{RESET}");
     println!();
 }
 
